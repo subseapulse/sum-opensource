@@ -1,0 +1,263 @@
+/*
+ * [2024] SubSeaPulse SRL 
+ * All Rights Reserved.
+ * 
+ * Authors Filippo Campagnaro  
+*/
+// This is free software: you can redistribute it and/or modify it        *
+// under the terms of the GNU General Public License version 3 as         *
+// published by the Free Software Foundation.                             *
+//                                                                        *
+// This program is distributed in the hope that it will be useful, but    *
+// WITHOUT ANY WARRANTY; without even the implied warranty of FITNESS     *
+// FOR A PARTICULAR PURPOSE. See the GNU General Public License for       *
+// more details.                                                          *
+//                                                                        *
+// You should have received a copy of the GNU General Public License      *
+// along with this program. If not, see <http://www.gnu.org/licenses/>.   *
+
+#include <iostream>
+#include "tcp-stream.h"
+#include "alsastream.h"
+#include "janus-wrapper.h"
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netinet/tcp.h>
+#include <string.h>
+#include <unistd.h>
+#include <iostream>
+#include <chrono>
+#include <thread>
+#include <memory>
+#include <gpio.h>
+#include <signal.h>
+
+/** maximum absolute gain for amp output (hw-dependent) */
+const float MAX_ABS_GAIN = 0.38;
+
+/** port of the socket used to exchange data with the users */
+const int SOCKPORT = 55555;  
+std::atomic<bool> exit_tx_rx{false}; /**< shared flag to terminate the threads */
+
+TcpStream server{SOCKPORT}; /**< socket used to exchange data with the users */
+std::shared_ptr<AlsaStream> astream = nullptr; /**< Alsa object handler */
+JanusWrapper janus; /**< Janus modulator/demodulator */
+GPIO gpio; /**< GPIO object handler */
+
+MacHdr my_hdr; /**< hdr with source and destination mac */
+
+/**
+ * transmission loop, where data received from the user via socket
+ * is modulated with JANUS and transmitted via soundcard
+ * @param src_addr the source address of this node, just to discard the 
+ * packet if it is received  back due to reflection or due to the loopback 
+ * of the audio interface. 
+ */
+void txLoop()
+{
+  while(!exit_tx_rx.load()) {
+    std::shared_ptr<Chunk> tx_chunk = std::make_shared<Chunk>(100);
+    if(server.rx(tx_chunk)) {
+      gpio.txrxSwitch(true);
+      tx_chunk->addHeader(&my_hdr,sizeof(my_hdr));
+      janus.modulate(tx_chunk);
+      astream->transmit(tx_chunk->getModulatedSamples()->samples);
+      gpio.txrxSwitch(false);//to check
+    } 
+  }
+}
+
+/**
+ * loop that receive the samples from the audio interface and gives them to 
+ * the demodulator
+ */
+void rxSamples()
+{
+  int num_rx_symbols = 4000;
+  while(!exit_tx_rx.load()) {
+    std::shared_ptr<Samples> samples = nullptr;
+    if((samples = astream->receive(num_rx_symbols)) != nullptr) {
+      janus.demodulate(samples);
+    }
+  }
+}
+
+/**
+ * trivial helper
+ */
+void printHelp() {
+  std::cout << "ERROR: we need either 0 (default) or 7 parameters:" << std::endl;
+  std::cout << "sampling frequency (default: 96000)" << std::endl;
+  std::cout << "centeral frequency (default: 11520)" << std::endl;
+  std::cout << "bandwidth (default: 4160)" << std::endl;
+  std::cout << "gain (default: 0.35, [0;1] range)" << std::endl;
+  std::cout << "source address (default: 1, range from 1 to 15)" << std::endl;
+  std::cout << "destination address (default: 0 (broadcast), range from 1 to 15)" << std::endl;
+  std::cout << "verbose (default: 0, range from 0 to 3)" << std::endl;
+  std::cout << "----------------------------------------------------------------" << std::endl;  
+  std::cout << "example:" << std::endl;
+  std::cout << "./janus_executable 96000 11520 4160 0.3 1 0 0" << std::endl;
+  std::cout << "----------------------------------------------------------------" << std::endl; 
+  std::cout << "Here the Janus bands:" << std::endl;
+  std::cout << " - A: centeral frequency = 11520 bandwidth = 4160" << std::endl;
+  std::cout << " - B: centeral frequency = 6000  bandwidth = 2600" << std::endl;
+  std::cout << " - C: centeral frequency = 9700  bandwidth = 2600" << std::endl;
+  std::cout << " - D: centeral frequency = 14080 bandwidth = 4160" << std::endl;
+  std::cout << " - E: centeral frequency = 28000 bandwidth = 6500" << std::endl;
+  std::cout << "NB: for band E you nedd a sampling frequency of 96000" << std::endl;
+}
+
+void
+signalHandler(int signum)
+{
+  if (signum == SIGTERM || signum == SIGINT) {
+
+    std::string dbg_msg = std::string("SIGNAL_RECEIVED::")
+      + std::to_string(signum);
+    std::cout << dbg_msg << std::endl;
+
+    exit(EXIT_SUCCESS);
+
+  } else {
+
+    std::string err_msg = std::string("SIGNAL_RECEIVED::")
+      + std::to_string(signum);
+    std::cout << err_msg << std::endl;
+
+    exit(EXIT_FAILURE);
+  }
+}
+
+/**
+ * main function
+ */
+int main(int argc, char* argv[])
+{
+  /**
+   * signal handling
+   */
+  struct sigaction act;
+  memset(&act, '\0', sizeof(act));
+  act.sa_handler = SIG_IGN;
+
+  if (sigaction(SIGPIPE, &act, NULL) < 0) {
+    std::cerr << "SIGPIPE" << std::endl;
+  }
+
+  memset(&act, '\0', sizeof(act));
+  act.sa_handler = &signalHandler;
+
+  if (sigaction(SIGINT, &act, NULL) < 0) {
+    std::cerr << "SIGINT" << std::endl;
+  } else if (sigaction(SIGILL, &act, NULL) < 0) {
+    std::cerr << "SIGILL" << std::endl;
+  } else if (sigaction(SIGFPE, &act, NULL) < 0) {
+    std::cerr << "SIGFPE" << std::endl;
+  } else if (sigaction(SIGSEGV, &act, NULL) < 0) {
+    std::cerr << "SIGSEGV" << std::endl;
+  } else if (sigaction(SIGBUS, &act, NULL) < 0) {
+    std::cerr << "SIGBUS" << std::endl;
+  } else if (sigaction(SIGSYS, &act, NULL) < 0) {
+    std::cerr << "SIGSYS" << std::endl;
+  } else if (sigaction(SIGABRT, &act, NULL) < 0) {
+    std::cerr << "SIGABRT" << std::endl;
+  } else if (sigaction(SIGALRM, &act, NULL) < 0) {
+    std::cerr << "SIGALRM" << std::endl;
+  } else if (sigaction(SIGTERM, &act, NULL) < 0) {
+    std::cerr << "SIGTERM" << std::endl;
+  } else if (sigaction(SIGQUIT, &act, NULL) < 0) {
+    std::cerr << "SIGQUIT" << std::endl;
+  }
+
+
+  /**
+   * configure the parameters
+   */
+  int sampling_frequency = 96000;
+  int center_frequency = 11520;
+  int bandwidth = 4160;
+  float tx_gain = 0.35;
+  my_hdr.src_addr = 1;
+  my_hdr.dest_addr = 0;
+  unsigned int verbose = 0;
+  if(argc == 8) {
+    sampling_frequency = atoi(argv[1]);
+    center_frequency = atoi(argv[2]);
+    bandwidth = atoi(argv[3]);
+    tx_gain = atof(argv[4]);
+    if(tx_gain > 1) {
+      std::cout << "provided tx_gain out of range, now set at 1" << std::endl;
+      tx_gain = 1;
+    }
+    else if(tx_gain < 0) {
+      std::cout << "provided negative tx_gain, now set at 0" << std::endl;
+      tx_gain = 0;
+    }
+
+    my_hdr.src_addr = atoi(argv[5]);
+    my_hdr.dest_addr = atoi(argv[6]);
+    verbose = atoi(argv[7]);
+  }
+  else if(argc != 1) {
+    printHelp();
+    return -1;
+  } 
+
+  std::cout << "sampling_frequency = " << sampling_frequency 
+    <<" center_frequency = " << center_frequency 
+    <<" bandwidth = " << bandwidth << " tx_gain = " << tx_gain 
+    <<" src_addr = " << (int)my_hdr.src_addr << " dest_addr = " << (int)my_hdr.dest_addr
+    << std::endl;
+  /**
+   * Open Alsa
+   */
+  astream = std::make_shared<AlsaStream>("default", sampling_frequency);
+  astream->init();
+
+  /**
+   * Configure JANUS
+   */
+  janus.setSamplingFrequency(sampling_frequency);
+  janus.setCarrierFrequency(center_frequency);
+  janus.setBandwidth(bandwidth);
+  janus.setTxGain(tx_gain * MAX_ABS_GAIN);  
+  /**
+   * reception buffer shared between the demodulator (Janus receiver) and the 
+   * loop that sends the received data to the user
+   */
+  std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>();
+  janus.setRxBuffer(rx_buffer);
+  janus.setVerbose(verbose);
+  janus.janusSetup();
+
+  /**
+   * Start the thread running the the transmission loop
+   */
+  std::thread listen_thread(&txLoop); 
+
+  /**
+   * Start the thread running the the loop that reads the samples 
+   * and gives them to the demodulator
+   */
+  std::thread rx_samples_thread(&rxSamples);
+
+  /**
+   * rx loop that sends the received data to the user
+   */
+  MacHdr tx_hdr = {};
+  while(!exit_tx_rx.load()) {
+    std::shared_ptr<Chunk> rx_chunk = nullptr;
+    rx_buffer->wPop(rx_chunk);
+    rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
+    if(tx_hdr.src_addr != my_hdr.src_addr ) { // it is self interference
+      if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
+        server.tx(rx_chunk);
+      }
+    }
+  }
+  exit_tx_rx.store(true);
+  listen_thread.join();
+  rx_samples_thread.join();
+}
