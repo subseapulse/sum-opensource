@@ -24,7 +24,7 @@
 #include "chunk.h"
 #include <memory>
 #include <mutex>
-
+#include <string>
 
 /**
  * Class TcpStream used for TCP socket RAII
