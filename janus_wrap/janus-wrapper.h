@@ -113,6 +113,13 @@ public:
   void setVerbose(int verbose);
 
   /**
+  * Function used to enable/disable wake up tones.
+  *
+  * @param wut integer equal to 1 for enabling wake up tones, 0 for disabling them.
+  */
+  void setWakeUpTones(int wut);
+
+  /**
   * Function used to create all the required janus objects.
   *
   * @return bool with value equal to the result of the function.

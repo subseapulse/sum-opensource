@@ -140,6 +140,13 @@ JanusWrapper::setVerbose(int verbose)
 {
   params->verbose = verbose;
 }
+
+void 
+JanusWrapper::setWakeUpTones(int wut)
+{
+  params->wut = wut;
+}
+
 void
 JanusWrapper::setSamplingFrequency(int sampling_frequency_)
 {
