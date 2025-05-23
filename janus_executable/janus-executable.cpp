@@ -202,7 +202,7 @@ int main(int argc, char* argv[])
   my_hdr.src_addr = 1;
   my_hdr.dest_addr = 0;
   unsigned int verbose = 0;
-  if(argc == 10) {
+  if(argc == 11) {
     sampling_frequency = atoi(argv[1]);
     center_frequency = atoi(argv[2]);
     bandwidth = atoi(argv[3]);
@@ -249,7 +249,8 @@ int main(int argc, char* argv[])
   janus.setCarrierFrequency(center_frequency);
   janus.setBandwidth(bandwidth);
   janus.setTxGain(tx_gain * MAX_ABS_GAIN);  
-  janus.setWakeUpTones(wake_up_tones);  
+  janus.setWakeUpTones(wake_up_tones);
+  janus.setMacMode(mac_enabled);  
   /**
    * reception buffer shared between the demodulator (Janus receiver) and the 
    * loop that sends the received data to the user
@@ -279,8 +280,6 @@ int main(int argc, char* argv[])
     rx_buffer->wPop(rx_chunk);
     if(mac_enabled) {
       rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
-    }
-    if(mac_enabled) {
       if(tx_hdr.src_addr != my_hdr.src_addr) { // it is not self interference
         if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
           server.tx(rx_chunk);
