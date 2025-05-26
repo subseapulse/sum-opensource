@@ -38,7 +38,7 @@ JanusWrapper::JanusWrapper()
   mutex_demod(),
   cv_demod(),
   demod_data_available(0),
-  macmode(0)
+  mac_mode(0)
 {
   params = janus_parameters_new();
   initDefaultParams();
@@ -149,8 +149,8 @@ JanusWrapper::setWakeUpTones(int wut)
 }
 
 void
-JanusWrapper::setMacMode(int _macmode){
-	macmode = _macmode;
+JanusWrapper::setMacMode(int _mac_mode){
+	mac_mode = _mac_mode;
 }
 
 void
@@ -246,8 +246,6 @@ JanusWrapper::demodulate(std::shared_ptr<Samples> samples)
   return true;
 }
 
-
-
 void JanusWrapper::performDemodulation()
 {
   unsigned queried_detection_time = 0;
@@ -282,16 +280,22 @@ void JanusWrapper::performDemodulation()
             janus_packet_get_cargo_error(packet_rx) == 0)
       {
         unsigned int _payload_len = janus_packet_get_cargo_size(packet_rx);
-				std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
+	std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
         if(rx_chunk->getSize() <= _payload_len) {
-          char hdr[Chunk::MAX_HEADER_SIZE] = {0};
-          memcpy(hdr, reinterpret_cast<char *>(
-            janus_packet_get_cargo(packet_rx)), macmode);
-          memcpy(rx_chunk->data(), reinterpret_cast<char *>(
-            janus_packet_get_cargo(packet_rx)) + macmode, 
-          _payload_len - macmode);
-          rx_chunk->setSize(_payload_len - macmode);
-          if(macmode) rx_chunk->addHeader(hdr,sizeof(MacHdr));
+	    if(mac_mode){
+          	char hdr[Chunk::MAX_HEADER_SIZE] = {0};
+          	memcpy(hdr, reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)), sizeof(MacHdr));
+          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)) + sizeof(MacHdr), 
+          	_payload_len - sizeof(MacHdr));
+          	rx_chunk->setSize(_payload_len - sizeof(MacHdr));
+          	rx_chunk->addHeader(hdr,sizeof(MacHdr));
+	    }else{
+          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)),_payload_len);
+          	rx_chunk->setSize(_payload_len);
+	    }
           pushRxChunk(rx_chunk);
         }
       } else if (janus_packet_get_cargo_error(packet_rx) != 0) {

@@ -109,7 +109,7 @@ void printHelp() {
   std::cout << "centeral frequency (default: 11520)" << std::endl;
   std::cout << "bandwidth (default: 4160)" << std::endl;
   std::cout << "gain (default: 0.35, [0;1] range)" << std::endl;
-  std::cout << "wake-up tones enabled (default: 0 = disabled, 1 = enabled)" << std::endl;
+  std::cout << "wake-up tones enabled (default: 0 = disabled, 1 = enabled) RECEPTION NOT SUPPORTED" << std::endl;
   std::cout << "half-duplex (default: 1 = enabled, 0 = disabled), when enabled the samples received while transmitting are discarded" << std::endl;
   std::cout << "MAC enabled (default: 0 = disabled, 1 = enabled)" << std::endl;
   std::cout << "source address (default: 1, range from 1 to 15), used only if MAC enabled" << std::endl;
@@ -216,6 +216,7 @@ int main(int argc, char* argv[])
       tx_gain = 0;
     }
     wake_up_tones = atoi(argv[5]);
+    if(wake_up_tones) printf("WARNING: RECEPTION OF WAKE-UP-TONES NOT SUPPORTED\n");
     half_duplex = atoi(argv[6]);
     mac_enabled = atoi(argv[7]);
     my_hdr.src_addr = atoi(argv[8]);
