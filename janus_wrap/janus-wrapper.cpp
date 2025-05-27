@@ -37,7 +37,8 @@ JanusWrapper::JanusWrapper()
   demod_thread(),
   mutex_demod(),
   cv_demod(),
-  demod_data_available(0)
+  demod_data_available(0),
+  mac_mode(0)
 {
   params = janus_parameters_new();
   initDefaultParams();
@@ -140,6 +141,18 @@ JanusWrapper::setVerbose(int verbose)
 {
   params->verbose = verbose;
 }
+
+void 
+JanusWrapper::setWakeUpTones(int wut)
+{
+  params->wut = wut;
+}
+
+void
+JanusWrapper::setMacMode(int _mac_mode){
+  mac_mode = _mac_mode;
+}
+
 void
 JanusWrapper::setSamplingFrequency(int sampling_frequency_)
 {
@@ -182,12 +195,12 @@ JanusWrapper::modulate(std::shared_ptr<Chunk> chunk)
   } 
   janus_packet_t packet = janus_packet_new(params->verbose);
   initPacket(packet);
-  char data[Chunk::MAX_HEADER_SIZE + chunk->getSize()] = {0};
-  memcpy(data,chunk->getHeader(), Chunk::MAX_HEADER_SIZE);
-  memcpy(data + Chunk::MAX_HEADER_SIZE,chunk->data(), chunk->getSize());
+  char data[chunk->getHeaderSize() + chunk->getSize()] = {0};
+  memcpy(data,chunk->getHeader(), chunk->getHeaderSize());
+  memcpy(data + chunk->getHeaderSize(),chunk->data(), chunk->getSize());
 
   int cargo_error = janus_packet_set_cargo(
-    packet, (janus_uint8_t*)data, Chunk::MAX_HEADER_SIZE + chunk->getSize());
+    packet, (janus_uint8_t*)data, chunk->getHeaderSize() + chunk->getSize());
   if (cargo_error == JANUS_ERROR_CARGO_SIZE)
   {
     janus_packet_free(packet);
@@ -267,16 +280,22 @@ void JanusWrapper::performDemodulation()
             janus_packet_get_cargo_error(packet_rx) == 0)
       {
         unsigned int _payload_len = janus_packet_get_cargo_size(packet_rx);
-        std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
+	std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
         if(rx_chunk->getSize() <= _payload_len) {
-          char hdr[Chunk::MAX_HEADER_SIZE] = {0};
-          memcpy(hdr, reinterpret_cast<char *>(
-            janus_packet_get_cargo(packet_rx)), Chunk::MAX_HEADER_SIZE);
-          memcpy(rx_chunk->data(), reinterpret_cast<char *>(
-            janus_packet_get_cargo(packet_rx)) + Chunk::MAX_HEADER_SIZE, 
-          _payload_len - Chunk::MAX_HEADER_SIZE);
-          rx_chunk->setSize(_payload_len - Chunk::MAX_HEADER_SIZE);
-          rx_chunk->addHeader(hdr,sizeof(MacHdr));
+	    if(mac_mode){
+          	char hdr[Chunk::MAX_HEADER_SIZE] = {0};
+          	memcpy(hdr, reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)), sizeof(MacHdr));
+          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)) + sizeof(MacHdr), 
+          	_payload_len - sizeof(MacHdr));
+          	rx_chunk->setSize(_payload_len - sizeof(MacHdr));
+          	rx_chunk->addHeader(hdr,sizeof(MacHdr));
+	    }else {
+          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+            	janus_packet_get_cargo(packet_rx)),_payload_len);
+          	rx_chunk->setSize(_payload_len);
+	    }
           pushRxChunk(rx_chunk);
         }
       } else if (janus_packet_get_cargo_error(packet_rx) != 0) {

@@ -39,7 +39,18 @@ const float MAX_ABS_GAIN = 0.38;
 
 /** port of the socket used to exchange data with the users */
 const int SOCKPORT = 55555;  
+/** 
+  * When true it ignores the samples received when the modem is transmitting, 
+  * so it becomes half duplex.
+ */
+bool half_duplex{true}; 
+bool mac_enabled{false}; /**< when true it adds mac info*/
 std::atomic<bool> exit_tx_rx{false}; /**< shared flag to terminate the threads */
+/** 
+  * Shared flag to check if the modem is transmitting. 
+  * It has an effect only with half_duplex option enabled. 
+ */
+std::atomic<bool> transmitting{false}; 
 
 TcpStream server{SOCKPORT}; /**< socket used to exchange data with the users */
 std::shared_ptr<AlsaStream> astream = nullptr; /**< Alsa object handler */
@@ -61,10 +72,14 @@ void txLoop()
     std::shared_ptr<Chunk> tx_chunk = std::make_shared<Chunk>(100);
     if(server.rx(tx_chunk)) {
       gpio.txrxSwitch(true);
-      tx_chunk->addHeader(&my_hdr,sizeof(my_hdr));
+      if(mac_enabled) {
+        tx_chunk->addHeader(&my_hdr,sizeof(my_hdr));
+      }
+      transmitting.store(true);
       janus.modulate(tx_chunk);
       astream->transmit(tx_chunk->getModulatedSamples()->samples);
       gpio.txrxSwitch(false);//to check
+      transmitting.store(false);
     } 
   }
 }
@@ -78,7 +93,8 @@ void rxSamples()
   int num_rx_symbols = 4000;
   while(!exit_tx_rx.load()) {
     std::shared_ptr<Samples> samples = nullptr;
-    if((samples = astream->receive(num_rx_symbols)) != nullptr) {
+    if((samples = astream->receive(num_rx_symbols)) != nullptr // if pointer is valid
+        && (!half_duplex || (half_duplex && !transmitting.load()))) { // and either half duplex is disabled or it is not transmitting
       janus.demodulate(samples);
     }
   }
@@ -88,17 +104,20 @@ void rxSamples()
  * trivial helper
  */
 void printHelp() {
-  std::cout << "ERROR: we need either 0 (default) or 7 parameters:" << std::endl;
+  std::cout << "ERROR: we need either 0 (default) or 10 parameters:" << std::endl;
   std::cout << "sampling frequency (default: 96000)" << std::endl;
   std::cout << "centeral frequency (default: 11520)" << std::endl;
   std::cout << "bandwidth (default: 4160)" << std::endl;
   std::cout << "gain (default: 0.35, [0;1] range)" << std::endl;
-  std::cout << "source address (default: 1, range from 1 to 15)" << std::endl;
-  std::cout << "destination address (default: 0 (broadcast), range from 1 to 15)" << std::endl;
+  std::cout << "wake-up tones enabled (default: 0 = disabled, 1 = enabled) RECEPTION NOT SUPPORTED" << std::endl;
+  std::cout << "half-duplex (default: 1 = enabled, 0 = disabled), when enabled the samples received while transmitting are discarded" << std::endl;
+  std::cout << "MAC enabled (default: 0 = disabled, 1 = enabled)" << std::endl;
+  std::cout << "source address (default: 1, range from 1 to 15), used only if MAC enabled" << std::endl;
+  std::cout << "destination address (default: 0 (broadcast), range from 1 to 15), need MAC enabled" << std::endl;
   std::cout << "verbose (default: 0, range from 0 to 3)" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl;  
   std::cout << "example:" << std::endl;
-  std::cout << "./janus_executable 96000 11520 4160 0.3 1 0 0" << std::endl;
+  std::cout << "./janus_executable 96000 11520 4160 0.3 0 1 0 1 0 0" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl; 
   std::cout << "Here the Janus bands:" << std::endl;
   std::cout << " - A: centeral frequency = 11520 bandwidth = 4160" << std::endl;
@@ -179,10 +198,11 @@ int main(int argc, char* argv[])
   int center_frequency = 11520;
   int bandwidth = 4160;
   float tx_gain = 0.35;
+  int wake_up_tones = 0;
   my_hdr.src_addr = 1;
   my_hdr.dest_addr = 0;
   unsigned int verbose = 0;
-  if(argc == 8) {
+  if(argc == 11) {
     sampling_frequency = atoi(argv[1]);
     center_frequency = atoi(argv[2]);
     bandwidth = atoi(argv[3]);
@@ -195,10 +215,15 @@ int main(int argc, char* argv[])
       std::cout << "provided negative tx_gain, now set at 0" << std::endl;
       tx_gain = 0;
     }
-
-    my_hdr.src_addr = atoi(argv[5]);
-    my_hdr.dest_addr = atoi(argv[6]);
-    verbose = atoi(argv[7]);
+    wake_up_tones = atoi(argv[5]);
+    if(wake_up_tones){
+      printf("WARNING: RECEPTION OF WAKE-UP-TONES NOT SUPPORTED\n");
+    }
+    half_duplex = atoi(argv[6]);
+    mac_enabled = atoi(argv[7]);
+    my_hdr.src_addr = atoi(argv[8]);
+    my_hdr.dest_addr = atoi(argv[9]);
+    verbose = atoi(argv[10]);
   }
   else if(argc != 1) {
     printHelp();
@@ -208,7 +233,11 @@ int main(int argc, char* argv[])
   std::cout << "sampling_frequency = " << sampling_frequency 
     <<" center_frequency = " << center_frequency 
     <<" bandwidth = " << bandwidth << " tx_gain = " << tx_gain 
-    <<" src_addr = " << (int)my_hdr.src_addr << " dest_addr = " << (int)my_hdr.dest_addr
+    << "wake_up_tones = " << wake_up_tones 
+    <<" half_duplex = " << half_duplex
+    <<" mac_enabled = " << mac_enabled
+    <<" src_addr = " << (int)my_hdr.src_addr 
+    << " dest_addr = " << (int)my_hdr.dest_addr
     << std::endl;
   /**
    * Open Alsa
@@ -223,6 +252,8 @@ int main(int argc, char* argv[])
   janus.setCarrierFrequency(center_frequency);
   janus.setBandwidth(bandwidth);
   janus.setTxGain(tx_gain * MAX_ABS_GAIN);  
+  janus.setWakeUpTones(wake_up_tones);
+  janus.setMacMode(mac_enabled);  
   /**
    * reception buffer shared between the demodulator (Janus receiver) and the 
    * loop that sends the received data to the user
@@ -250,11 +281,15 @@ int main(int argc, char* argv[])
   while(!exit_tx_rx.load()) {
     std::shared_ptr<Chunk> rx_chunk = nullptr;
     rx_buffer->wPop(rx_chunk);
-    rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
-    if(tx_hdr.src_addr != my_hdr.src_addr ) { // it is self interference
-      if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
-        server.tx(rx_chunk);
+    if(mac_enabled) {
+      rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
+      if(tx_hdr.src_addr != my_hdr.src_addr) { // it is not self interference
+        if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
+          server.tx(rx_chunk);
+        }
       }
+    } else { // if MAC is disabled
+      server.tx(rx_chunk);
     }
   }
   exit_tx_rx.store(true);

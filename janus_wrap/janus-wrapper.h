@@ -113,6 +113,20 @@ public:
   void setVerbose(int verbose);
 
   /**
+  * Function used to enable/disable wake up tones.
+  *
+  * @param wut integer equal to 1 for enabling wake up tones, 0 for disabling them.
+  */
+  void setWakeUpTones(int wut);
+
+  /**
+  * Function used to enable/disable MAC mechanics.
+  *
+  * @param wut integer equal to 1 for enabling MAC support, 0 for disabling it.
+  */
+  void setMacMode(int _macmode);
+
+  /**
   * Function used to create all the required janus objects.
   *
   * @return bool with value equal to the result of the function.
@@ -175,6 +189,7 @@ private:
   static const unsigned int JANUS_RED_SIZE; /**< constant equal to JANUS DEFAULT_DRV_IN_SIZE */
   static const unsigned int MAX_SIZE_TO_READ; /**< max size to read from buffer */
 
+  int mac_mode; /**< MAC mode, 0 is disabled, 1 enabled */
 };
 
 #endif
