@@ -216,7 +216,9 @@ int main(int argc, char* argv[])
       tx_gain = 0;
     }
     wake_up_tones = atoi(argv[5]);
-    if(wake_up_tones) printf("WARNING: RECEPTION OF WAKE-UP-TONES NOT SUPPORTED\n");
+    if(wake_up_tones){
+      printf("WARNING: RECEPTION OF WAKE-UP-TONES NOT SUPPORTED\n");
+    }
     half_duplex = atoi(argv[6]);
     mac_enabled = atoi(argv[7]);
     my_hdr.src_addr = atoi(argv[8]);

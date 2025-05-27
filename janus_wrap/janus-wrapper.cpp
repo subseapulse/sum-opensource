@@ -150,7 +150,7 @@ JanusWrapper::setWakeUpTones(int wut)
 
 void
 JanusWrapper::setMacMode(int _mac_mode){
-	mac_mode = _mac_mode;
+  mac_mode = _mac_mode;
 }
 
 void
@@ -291,7 +291,7 @@ void JanusWrapper::performDemodulation()
           	_payload_len - sizeof(MacHdr));
           	rx_chunk->setSize(_payload_len - sizeof(MacHdr));
           	rx_chunk->addHeader(hdr,sizeof(MacHdr));
-	    }else{
+	    }else {
           	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
             	janus_packet_get_cargo(packet_rx)),_payload_len);
           	rx_chunk->setSize(_payload_len);
