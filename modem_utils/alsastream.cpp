@@ -217,7 +217,6 @@ AlsaStream::transmit(const std::vector<int16_t> &data)
 	size_t offset = 0;
 	int err = 0;
 	unsigned int rrate = 0;
-	int i = 0;
 	snd_pcm_hw_params_get_rate(hw_params, &rrate, 0);
 	while(offset < data.size()) {
 		int rv = 0;
@@ -251,11 +250,12 @@ AlsaStream::transmit(const std::vector<int16_t> &data)
 		}
 	}
 	total_frames_sent += offset;
-	if((i+=snd_pcm_drain(handle_tx)) == 0) {
-          i+=snd_pcm_prepare(handle_tx);
+	err = 0;
+	if((err+=snd_pcm_drain(handle_tx)) == 0) {
+        	err+=snd_pcm_prepare(handle_tx);
 	}
-	if(i>0) {
-		return err;
+	if(err!=0) {
+		return -1;
 	}
 	return offset;
 }
