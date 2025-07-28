@@ -250,6 +250,13 @@ AlsaStream::transmit(const std::vector<int16_t> &data)
 		}
 	}
 	total_frames_sent += offset;
+	err = 0;
+	if((err+=snd_pcm_drain(handle_tx)) == 0) {
+        	err+=snd_pcm_prepare(handle_tx);
+	}
+	if(err!=0) {
+		return -1;
+	}
 	return offset;
 }
 
