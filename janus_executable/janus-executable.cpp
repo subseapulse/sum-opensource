@@ -46,6 +46,7 @@ const int SOCKPORT = 55555;
 bool half_duplex{true}; 
 bool mac_enabled{false}; /**< when true it adds mac info*/
 std::atomic<bool> exit_tx_rx{false}; /**< shared flag to terminate the threads */
+std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>(); /**< buffer containing decoded JANUS data */ 
 /** 
   * Shared flag to check if the modem is transmitting. 
   * It has an effect only with half_duplex option enabled. 
@@ -137,7 +138,9 @@ signalHandler(int signum)
       + std::to_string(signum);
     std::cout << dbg_msg << std::endl;
 
-    exit(EXIT_SUCCESS);
+    exit_tx_rx.store(true);
+    rx_buffer->forceExit();
+    return;
 
   } else {
 
@@ -258,7 +261,6 @@ int main(int argc, char* argv[])
    * reception buffer shared between the demodulator (Janus receiver) and the 
    * loop that sends the received data to the user
    */
-  std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>();
   janus.setRxBuffer(rx_buffer);
   janus.setVerbose(verbose);
   janus.janusSetup();
@@ -280,19 +282,21 @@ int main(int argc, char* argv[])
   MacHdr tx_hdr = {};
   while(!exit_tx_rx.load()) {
     std::shared_ptr<Chunk> rx_chunk = nullptr;
-    rx_buffer->wPop(rx_chunk);
-    if(mac_enabled) {
-      rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
-      if(tx_hdr.src_addr != my_hdr.src_addr) { // it is not self interference
-        if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
-          server.tx(rx_chunk);
+    if(rx_buffer->wPop(rx_chunk)){
+      if(mac_enabled) {
+        rx_chunk->deserializeHeader(&tx_hdr,sizeof(tx_hdr));
+        if(tx_hdr.src_addr != my_hdr.src_addr) { // it is not self interference
+          if(tx_hdr.dest_addr == BROADCAST_ADDRESS || tx_hdr.dest_addr == my_hdr.src_addr) {
+            server.tx(rx_chunk);
+          }
         }
+      } else { // if MAC is disabled
+        server.tx(rx_chunk);
       }
-    } else { // if MAC is disabled
-      server.tx(rx_chunk);
     }
   }
-  exit_tx_rx.store(true);
+  server.quit();
   listen_thread.join();
   rx_samples_thread.join();
+  exit(EXIT_SUCCESS);
 }
