@@ -46,7 +46,7 @@ const int SOCKPORT = 55555;
 bool half_duplex{true}; 
 bool mac_enabled{false}; /**< when true it adds mac info*/
 std::atomic<bool> exit_tx_rx{false}; /**< shared flag to terminate the threads */
-std::shared_ptr<ConcBuffer> rx_buffer = nullptr;
+std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>(); /**< buffer containing decoded JANUS data */ 
 /** 
   * Shared flag to check if the modem is transmitting. 
   * It has an effect only with half_duplex option enabled. 
@@ -139,10 +139,7 @@ signalHandler(int signum)
     std::cout << dbg_msg << std::endl;
 
     exit_tx_rx.store(true);
-    if(rx_buffer != nullptr)
-      rx_buffer->forceExit();
-
-    //exit(EXIT_SUCCESS);
+    rx_buffer->forceExit();
     return;
 
   } else {
@@ -264,7 +261,6 @@ int main(int argc, char* argv[])
    * reception buffer shared between the demodulator (Janus receiver) and the 
    * loop that sends the received data to the user
    */
-  rx_buffer = std::make_shared<ConcBuffer>();
   janus.setRxBuffer(rx_buffer);
   janus.setVerbose(verbose);
   janus.janusSetup();
@@ -302,4 +298,5 @@ int main(int argc, char* argv[])
   server.quit();
   listen_thread.join();
   rx_samples_thread.join();
+  exit(EXIT_SUCCESS);
 }
