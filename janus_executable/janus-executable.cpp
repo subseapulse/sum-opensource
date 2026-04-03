@@ -51,7 +51,7 @@ std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>(); /**< buf
   * Shared flag to check if the modem is transmitting. 
   * It has an effect only with half_duplex option enabled. 
  */
-std::atomic<bool> transmitting{false}; 
+bool transmitting{false}; 
 
 TcpStream server{SOCKPORT}; /**< socket used to exchange data with the users */
 std::shared_ptr<AlsaStream> astream = nullptr; /**< Alsa object handler */
@@ -76,11 +76,11 @@ void txLoop()
       if(mac_enabled) {
         tx_chunk->addHeader(&my_hdr,sizeof(my_hdr));
       }
-      transmitting.store(true);
+      transmitting = true;
       janus.modulate(tx_chunk);
       astream->transmit(tx_chunk->getModulatedSamples()->samples);
       gpio.txrxSwitch(false);//to check
-      transmitting.store(false);
+      transmitting = false;
     } 
   }
 }
@@ -95,7 +95,7 @@ void rxSamples()
   while(!exit_tx_rx.load()) {
     std::shared_ptr<Samples> samples = nullptr;
     if((samples = astream->receive(num_rx_symbols)) != nullptr // if pointer is valid
-        && (!half_duplex || (half_duplex && !transmitting.load()))) { // and either half duplex is disabled or it is not transmitting
+        && (!half_duplex || !transmitting)) { // and either half duplex is disabled or it is not transmitting
       janus.demodulate(samples);
     }
   }
