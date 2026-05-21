@@ -283,6 +283,8 @@ void JanusWrapper::performDemodulation()
 	std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
         if(rx_chunk->getSize() <= _payload_len) {
           if(mac_mode){
+            // Ensure payload has at least 1 byte of application data (excluding MAC header).
+            // If needed, this can be relaxed to >= without issues, except for minor processing inefficiency.
             if(_payload_len>sizeof(MacHdr)){
                 char hdr[Chunk::MAX_HEADER_SIZE] = {0};
                 memcpy(hdr, reinterpret_cast<char *>(
