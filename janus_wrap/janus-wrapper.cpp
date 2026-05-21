@@ -282,21 +282,24 @@ void JanusWrapper::performDemodulation()
         unsigned int _payload_len = janus_packet_get_cargo_size(packet_rx);
 	std::shared_ptr<Chunk> rx_chunk = std::make_shared<Chunk>(_payload_len);
         if(rx_chunk->getSize() <= _payload_len) {
-	    if(mac_mode){
-          	char hdr[Chunk::MAX_HEADER_SIZE] = {0};
-          	memcpy(hdr, reinterpret_cast<char *>(
-            	janus_packet_get_cargo(packet_rx)), sizeof(MacHdr));
-          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
-            	janus_packet_get_cargo(packet_rx)) + sizeof(MacHdr), 
-          	_payload_len - sizeof(MacHdr));
-          	rx_chunk->setSize(_payload_len - sizeof(MacHdr));
-          	rx_chunk->addHeader(hdr,sizeof(MacHdr));
-	    }else {
-          	memcpy(rx_chunk->data(), reinterpret_cast<char *>(
-            	janus_packet_get_cargo(packet_rx)),_payload_len);
-          	rx_chunk->setSize(_payload_len);
-	    }
-          pushRxChunk(rx_chunk);
+          if(mac_mode){
+            if(_payload_len>sizeof(MacHdr)){
+                char hdr[Chunk::MAX_HEADER_SIZE] = {0};
+                memcpy(hdr, reinterpret_cast<char *>(
+                  janus_packet_get_cargo(packet_rx)), sizeof(MacHdr));
+                memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+                  janus_packet_get_cargo(packet_rx)) + sizeof(MacHdr), 
+                _payload_len - sizeof(MacHdr));
+                rx_chunk->setSize(_payload_len - sizeof(MacHdr));
+                rx_chunk->addHeader(hdr,sizeof(MacHdr));
+                pushRxChunk(rx_chunk);
+            }
+          }else {
+            memcpy(rx_chunk->data(), reinterpret_cast<char *>(
+              janus_packet_get_cargo(packet_rx)),_payload_len);
+            rx_chunk->setSize(_payload_len);
+            pushRxChunk(rx_chunk);
+          }
         }
       } else if (janus_packet_get_cargo_error(packet_rx) != 0) {
         // ERROR janus_packet_get_cargo_error
