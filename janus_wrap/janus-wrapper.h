@@ -75,6 +75,8 @@ public:
   */
   bool setRxBuffer(std::shared_ptr<ConcBuffer> buffer);
 
+  bool setJanusApplicationType(unsigned int type);
+
   /**
   * Function used to set the carrier frequency
   *
@@ -188,8 +190,11 @@ private:
 
   static const unsigned int JANUS_RED_SIZE; /**< constant equal to JANUS DEFAULT_DRV_IN_SIZE */
   static const unsigned int MAX_SIZE_TO_READ; /**< max size to read from buffer */
+  static const unsigned int CRC_SIZE; 
 
   int mac_mode; /**< MAC mode, 0 is disabled, 1 enabled */
+
+  janus_uint8_t app_type;
 };
 
 #endif

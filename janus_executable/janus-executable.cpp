@@ -47,6 +47,7 @@ bool half_duplex{true};
 bool mac_enabled{false}; /**< when true it adds mac info*/
 std::atomic<bool> exit_tx_rx{false}; /**< shared flag to terminate the threads */
 std::shared_ptr<ConcBuffer> rx_buffer = std::make_shared<ConcBuffer>(); /**< buffer containing decoded JANUS data */ 
+std::shared_ptr<ConcBuffer> tx_buffer = std::make_shared<ConcBuffer>(); /**< buffer containing packets received from the socket to be transmitted */
 /** 
   * Shared flag to check if the modem is transmitting. 
   * It has an effect only with half_duplex option enabled. 
@@ -61,28 +62,45 @@ GPIO gpio; /**< GPIO object handler */
 MacHdr my_hdr; /**< hdr with source and destination mac */
 
 /**
- * transmission loop, where data received from the user via socket
- * is modulated with JANUS and transmitted via soundcard
- * @param src_addr the source address of this node, just to discard the 
- * packet if it is received  back due to reflection or due to the loopback 
- * of the audio interface. 
+ * transmission loop, where data received from the user via TCP socket
+ * is pushed to a concurrent queue waiting to be transmitted.
  */
-void txLoop()
-{
+void tcpRxLoop() {
   while(!exit_tx_rx.load()) {
-    std::shared_ptr<Chunk> tx_chunk = std::make_shared<Chunk>(100);
+    std::shared_ptr<Chunk> tx_chunk = std::make_shared<Chunk>(Chunk::DEFAULT_SIZE);
     if(server.rx(tx_chunk)) {
-      gpio.txrxSwitch(true);
-      if(mac_enabled) {
-        tx_chunk->addHeader(&my_hdr,sizeof(my_hdr));
-      }
-      transmitting.store(true);
-      janus.modulate(tx_chunk);
-      astream->transmit(tx_chunk->getModulatedSamples()->samples);
-      gpio.txrxSwitch(false);//to check
-      transmitting.store(false);
+            tx_buffer->push(tx_chunk);
     } 
   }
+}
+
+/**
+ * transmission loop, where data in tx_buffer concurrent queue
+ * is modulated with JANUS and transmitted via soundcard.
+ */
+void
+txLoop()
+{
+    while (!exit_tx_rx.load()) {
+        std::shared_ptr<Chunk> tx_chunk = nullptr;
+
+        if (tx_buffer->wPop(tx_chunk)) {
+            if (exit_tx_rx.load())
+                break;
+
+            if (mac_enabled)
+                tx_chunk->addHeader(&my_hdr, sizeof(my_hdr));
+
+            gpio.txrxSwitch(true);
+            transmitting.store(true);
+
+            if (janus.modulate(tx_chunk))
+                astream->transmit(tx_chunk->getModulatedSamples()->samples);
+
+            gpio.txrxSwitch(false);
+            transmitting.store(false);
+        }
+    }
 }
 
 /**
@@ -105,7 +123,7 @@ void rxSamples()
  * trivial helper
  */
 void printHelp() {
-  std::cout << "ERROR: we need either 0 (default) or 10 parameters:" << std::endl;
+  std::cout << "ERROR: we need either 0 (default) or 12 parameters:" << std::endl;
   std::cout << "sampling frequency (default: 96000)" << std::endl;
   std::cout << "centeral frequency (default: 11520)" << std::endl;
   std::cout << "bandwidth (default: 4160)" << std::endl;
@@ -116,9 +134,10 @@ void printHelp() {
   std::cout << "source address (default: 1, range from 1 to 15), used only if MAC enabled" << std::endl;
   std::cout << "destination address (default: 0 (broadcast), range from 1 to 15), need MAC enabled" << std::endl;
   std::cout << "verbose (default: 0, range from 0 to 3)" << std::endl;
+  std::cout << "application type (default: 0, either 0 or 1 (crc-enabled))" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl;  
   std::cout << "example:" << std::endl;
-  std::cout << "./janus_executable 96000 11520 4160 0.3 0 1 0 1 0 0" << std::endl;
+  std::cout << "./janus_executable 96000 11520 4160 0.3 0 1 0 1 0 0 1" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl; 
   std::cout << "Here the Janus bands:" << std::endl;
   std::cout << " - A: centeral frequency = 11520 bandwidth = 4160" << std::endl;
@@ -205,7 +224,8 @@ int main(int argc, char* argv[])
   my_hdr.src_addr = 1;
   my_hdr.dest_addr = 0;
   unsigned int verbose = 0;
-  if(argc == 11) {
+  unsigned int app_type = 0;
+  if(argc == 12) {
     sampling_frequency = atoi(argv[1]);
     center_frequency = atoi(argv[2]);
     bandwidth = atoi(argv[3]);
@@ -227,6 +247,7 @@ int main(int argc, char* argv[])
     my_hdr.src_addr = atoi(argv[8]);
     my_hdr.dest_addr = atoi(argv[9]);
     verbose = atoi(argv[10]);
+    app_type = atoi(argv[11]);
   }
   else if(argc != 1) {
     printHelp();
@@ -241,6 +262,7 @@ int main(int argc, char* argv[])
     <<" mac_enabled = " << mac_enabled
     <<" src_addr = " << (int)my_hdr.src_addr 
     << " dest_addr = " << (int)my_hdr.dest_addr
+    << " app_type = " << (int)app_type
     << std::endl;
   /**
    * Open Alsa
@@ -251,6 +273,7 @@ int main(int argc, char* argv[])
   /**
    * Configure JANUS
    */
+  janus.setJanusApplicationType(app_type);
   janus.setSamplingFrequency(sampling_frequency);
   janus.setCarrierFrequency(center_frequency);
   janus.setBandwidth(bandwidth);
@@ -268,7 +291,8 @@ int main(int argc, char* argv[])
   /**
    * Start the thread running the the transmission loop
    */
-  std::thread listen_thread(&txLoop); 
+  std::thread tcp_rx_thread(&tcpRxLoop);
+  std::thread tx_thread(&txLoop);
 
   /**
    * Start the thread running the the loop that reads the samples 
@@ -296,7 +320,9 @@ int main(int argc, char* argv[])
     }
   }
   server.quit();
-  listen_thread.join();
+  tx_buffer->forceExit();
+  tcp_rx_thread.join();
+  tx_thread.join();
   rx_samples_thread.join();
   exit(EXIT_SUCCESS);
 }
