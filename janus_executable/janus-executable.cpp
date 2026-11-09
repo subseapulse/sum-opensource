@@ -123,7 +123,7 @@ void rxSamples()
  * trivial helper
  */
 void printHelp() {
-  std::cout << "ERROR: we need either 0 (default) or 10 parameters:" << std::endl;
+  std::cout << "ERROR: we need either 0 (default) or 12 parameters:" << std::endl;
   std::cout << "sampling frequency (default: 96000)" << std::endl;
   std::cout << "centeral frequency (default: 11520)" << std::endl;
   std::cout << "bandwidth (default: 4160)" << std::endl;
@@ -134,9 +134,10 @@ void printHelp() {
   std::cout << "source address (default: 1, range from 1 to 15), used only if MAC enabled" << std::endl;
   std::cout << "destination address (default: 0 (broadcast), range from 1 to 15), need MAC enabled" << std::endl;
   std::cout << "verbose (default: 0, range from 0 to 3)" << std::endl;
+  std::cout << "application type (default: 0, either 0 or 1 (crc-enabled))" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl;  
   std::cout << "example:" << std::endl;
-  std::cout << "./janus_executable 96000 11520 4160 0.3 0 1 0 1 0 0" << std::endl;
+  std::cout << "./janus_executable 96000 11520 4160 0.3 0 1 0 1 0 0 1" << std::endl;
   std::cout << "----------------------------------------------------------------" << std::endl; 
   std::cout << "Here the Janus bands:" << std::endl;
   std::cout << " - A: centeral frequency = 11520 bandwidth = 4160" << std::endl;
@@ -223,7 +224,8 @@ int main(int argc, char* argv[])
   my_hdr.src_addr = 1;
   my_hdr.dest_addr = 0;
   unsigned int verbose = 0;
-  if(argc == 11) {
+  unsigned int app_type = 0;
+  if(argc == 12) {
     sampling_frequency = atoi(argv[1]);
     center_frequency = atoi(argv[2]);
     bandwidth = atoi(argv[3]);
@@ -245,6 +247,7 @@ int main(int argc, char* argv[])
     my_hdr.src_addr = atoi(argv[8]);
     my_hdr.dest_addr = atoi(argv[9]);
     verbose = atoi(argv[10]);
+    app_type = atoi(argv[11]);
   }
   else if(argc != 1) {
     printHelp();
@@ -259,6 +262,7 @@ int main(int argc, char* argv[])
     <<" mac_enabled = " << mac_enabled
     <<" src_addr = " << (int)my_hdr.src_addr 
     << " dest_addr = " << (int)my_hdr.dest_addr
+    << " app_type = " << (int)app_type
     << std::endl;
   /**
    * Open Alsa
@@ -269,7 +273,7 @@ int main(int argc, char* argv[])
   /**
    * Configure JANUS
    */
-  janus.setJanusApplicationType(0);
+  janus.setJanusApplicationType(app_type);
   janus.setSamplingFrequency(sampling_frequency);
   janus.setCarrierFrequency(center_frequency);
   janus.setBandwidth(bandwidth);
