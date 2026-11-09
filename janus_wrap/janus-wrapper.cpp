@@ -225,7 +225,7 @@ JanusWrapper::modulate(std::shared_ptr<Chunk> chunk)
 
     // Application Type 1: plugin appends CRC-16
     if (cargo_error == JANUS_ERROR_NONE && app_type == 1)
-        cargo_error = janus_packet_encode_cargo_raw(packet);
+        cargo_error = janus_packet_encode_cargo_byte(packet);
 
     if (cargo_error != JANUS_ERROR_NONE ||
         janus_packet_encode_application_data(packet) != JANUS_ERROR_NONE) {
